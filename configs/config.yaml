@@ -1,0 +1,20 @@
+# Pipeline configuration. Paths relative to the repo root.
+
+data:
+  processed_dir: data/processed
+  artifacts_dir: data/artifacts
+  n_strings: 2000
+  defect_rate: 0.35
+  seed: 42
+
+checks:
+  length_ratio_band: [0.6, 1.9]   # target/source length outside this = overflow risk
+  allowed_english: [brandco, premium, app, pro]
+
+rag:
+  glossary_path: docs/glossary.md
+  top_k: 3
+  min_score: 1.0
+
+eval:
+  experiment_name: translategate
