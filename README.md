@@ -17,8 +17,6 @@
 
 </div>
 
-> **Portfolio project.** Built to demonstrate rule-based QA, feature-based quality estimation, and a small retrieval assistant on synthetic localization data. Not hardened for production use.
-
 ---
 
 ## The problem
