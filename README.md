@@ -1,60 +1,211 @@
-# TranslateGate — Machine Translation QA & Contract-First Schema Validation <div align="center"> [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B.svg?logo=streamlit&logoColor=white)](https://streamlit.io/)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com/)
-[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
-[![Tests: Pytest](https://img.shields.io/badge/tests-pytest-blue.svg?logo=pytest&logoColor=white)](https://pytest.org/) </div> > **Automated machine translation quality assurance, i18n placeholder corruption prevention, and terminology compliance auditing powered by a Contract-First Schema-Driven Validation Architecture with dynamic JSON Schema export.** --- ## 🏛️ Architecture Pattern **Contract-First Schema-Driven Validation Architecture** Enterprise localization pipelines and automated machine translation systems process millions of string segments across distributed services:
-> **Note:** This is a portfolio project demonstrating software engineering patterns and ML concepts. Not intended for production use without further hardening. - **I18n Variable Corruption:** LLMs and neural machine translation (NMT) models frequently drop or translate variable tokens (e.g. `{userName}` becoming `{benutzerName}` or `%s` becoming `% s`), causing catastrophic runtime UI crashes.
-- **Terminology Inconsistencies:** Translating proprietary brand terms or legal keywords inconsistently introduces severe compliance liability.
-- **Microservice Contract Gaps:** Downstream localization ingestion services need strict machine-readable contracts to reject invalid translation payloads at the gateway. The **Contract-First Schema-Driven Validation Architecture** defines formal declarative localization contracts (`TranslationContract`) specifying strict placeholder invariants, expansion/compression ratios, glossary mappings, and forbidden terms. A unified `ContractValidator` executes multi-pass sweeps and exports standard JSON Schema contracts for microservice boundary validation: ```mermaid
-flowchart TD subgraph ContractSpec["📜 Declarative Translation Contract (TranslationContract)"] direction TB C1["Strict Placeholder Invariant: {var}, %s, %d"] C2["Length Expansion Bounds: [0.4x, 2.5x]"] C3["Mandatory Terminology Glossary Mappings"] C4["Forbidden & Offensive Lexicon Filter"] C5["Numeric Token Preservation"] C1 ~~~ C2 ~~~ C3 ~~~ C4 ~~~ C5 end Pair[Source & Target Translation Segments] --> Validator[ContractValidator Engine] ContractSpec --> Validator subgraph Evaluation["🔍 Multi-Pass Invariant Verification"] direction TB V1["Placeholder Integrity Check"] V2["Glossary Compliance Check"] V3["Length Expansion Check"] V4["Forbidden Term Check"] V1 --> V2 --> V3 --> V4 end Validator --> Evaluation Evaluation --> Result["ContractValidationResult<br/>(is_valid, has_blockers, Typed Violations)"] Validator --> JSONSchema["Exportable JSON Schema Spec<br/>(OpenAPI / Microservice Ingestion Gate)"]
-``` ### Contract Violation Severity Hierarchy | Severity Level | Invariant Triggered | Action | Example |
+<div align="center">
+
+<img src="docs/brand/banner.svg" alt="TranslateGate — Machine Translation QA Gate" width="720">
+
+</div>
+
+# TranslateGate — Machine Translation QA Gate
+
+**A quality gate for localized strings.** TranslateGate checks a source string against its translation, fires typed findings for the ways machine translation tends to break UIs — dropped placeholders, off-glossary brand terms, leftover English, number drift, length blowouts — and combines them into a single `pass` / `review` / `block` decision. A small learned model turns those signals into a quality score, and a cited glossary assistant explains *why* a term is wrong.
+
+<div align="center">
+
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Tests: pytest](https://img.shields.io/badge/tests-pytest-0A9EDC.svg?logo=pytest&logoColor=white)](https://pytest.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
+
+</div>
+
+> **Portfolio project.** Built to demonstrate rule-based QA, feature-based quality estimation, and a small retrieval assistant on synthetic localization data. Not hardened for production use.
+
+---
+
+## The problem
+
+Localization pipelines push thousands of translated strings into a UI, and a translation that reads fine can still crash or embarrass the product: a dropped `{count}` placeholder throws at render time, "checkout" rendered as "zahlung" breaks brand-mandated terminology, a half-translated string leaks English into a German screen, and a 3x-longer string overflows a button. These are cheap to catch mechanically but expensive to catch by eye at scale.
+
+TranslateGate treats the translated string as something to be **gated**, not trusted: run a fixed battery of checks, each producing an auditable finding with a severity and a rule id, then decide whether the string ships, needs review, or is blocked.
+
+## What it does
+
+- **Checks a string pair** and returns typed findings plus a gate decision (`pass` / `review` / `block`).
+- **Scores quality** with a learned model that maps check signals to a 0–1 quality estimate.
+- **Summarizes a corpus** — how many strings, what defects were planted, how well each check detects them.
+- **Answers glossary questions** with citations back to the actual style-guide rule.
+
+## How it works
+
+A source/target pair runs through five deterministic checks. The findings both drive the rule-based gate and become features for a logistic-regression quality estimator trained on a synthetic corpus of planted defects.
+
+```mermaid
+flowchart TD
+    subgraph Corpus["Corpus pipeline (offline)"]
+        T["Product-string templates"] --> P["Pseudo-translator<br/>(deterministic reference)"]
+        P --> D["Inject labelled defects<br/>(~35% of pairs)"]
+        D --> TR["QE training<br/>(LogisticRegression + MLflow)"]
+        TR --> ART["qe.pkl + corpus_scored.parquet"]
+    end
+
+    IN["Source + target string"] --> CHK["run_all: 5 QA checks"]
+    subgraph Checks["QA checks (qa/checks.py)"]
+        C1["placeholders — blocker"]
+        C2["terminology / glossary — major"]
+        C3["untranslated English — major"]
+        C4["length ratio — minor"]
+        C5["numbers — major"]
+    end
+    CHK --> Checks
+    Checks --> FIND["Typed findings"]
+    FIND --> GATE["Gate: block / review / pass"]
+    FIND --> QF["QE features"]
+    ART --> QE["QE model"]
+    QF --> QE
+    QE --> SCORE["quality_score = 1 − P(defect)"]
+
+    G["docs/glossary.md"] --> BM["BM25 glossary assistant"]
+    BM --> ANS["Cited rules"]
+```
+
+### The five checks
+
+| Check | Severity | What it catches | Rule source |
 |---|---|---|---|
-| `BLOCKER` | Missing / corrupted `{var}` or `%s` placeholder | Rejects payload immediately at API gate | Source: `{user_name}` $\to$ Target: `John` (corrupted) |
-| `BLOCKER` | Forbidden / offensive terminology detected | Hard stop; blocks publication to production UI | Contains prohibited or flagged terms |
-| `MAJOR` | Glossary brand keyword violation | Requires linguist review; fails automated CI build | English `checkout` $\to$ German `Ausgang` (must be `Kasse`) |
-| `MAJOR` | Numeric token mismatch | Flags potential quantity/pricing discrepancy | Source: `3 items` $\to$ Target: `5 Artikel` |
-| `MINOR` | Character expansion ratio exceeded | Emits warning for frontend truncation risk | Source: 10 chars $\to$ Target: 45 chars ($> 3.0\times$) | --- ## 📐 Mathematical Formulation ### 1. Placeholder Token Invariant Let $\mathcal{P}(T)$ be the multiset of regex-extracted placeholder tokens in string $T$: $$\text{Valid}_{\text{placeholder}}(S, T) \iff \mathcal{P}(S) \equiv \mathcal{P}(T)$$ ### 2. Bounded Expansion Ratio Given character length $|T|$ of translated string and $|S|$ of source: $$\text{Valid}_{\text{length}}(S, T) \iff R_{\min} \le \frac{|T|}{|S|} \le R_{\max}$$ where for German/Romance language pairs, $R_{\min} = 0.4$ and $R_{\max} = 2.5$. ### 3. Terminology Glossary Mapping Invariant For every mapping rule $(u \mapsto v) \in \mathcal{G}$: $$u \in \text{Tokens}(S) \implies v \in \text{Tokens}(T)$$ --- ## 🚀 Quick Start & Usage ```bash
-# Setup environment and run tests
-uv sync
-uv run pytest # Launch FastAPI microservice & Streamlit localization cockpit
-uv run uvicorn translategate.api.routes:app --reload --port 8000
-``` ### Contract-Driven Validation in Python ```python
-from translategate.contract import ( TranslationContract, ContractValidator, ValidationSeverity,
-) # 1. Define formal localization contract
-contract = TranslationContract( source_locale="en", target_locale="de", max_length_expansion_ratio=2.2, min_length_compression_ratio=0.4, glossary_mappings={"checkout": "Kasse", "shipping": "Versand"}, forbidden_terms=("dummy_mock", "untranslated"), strict_placeholder_matching=True, preserve_numeric_tokens=True,
-) # 2. Instantiate validator
-validator = ContractValidator(contract) # 3. Validate clean segment
-valid_src = "Please proceed to checkout for {order_id}."
-valid_tgt = "Bitte gehen Sie zur Kasse für {order_id}." res = validator.validate(valid_src, valid_tgt)
-print(f"Clean Validation Passed: {res.is_valid}") # True # 4. Validate corrupted segment (dropped placeholder & missing glossary term)
-corrupted_tgt = "Bitte gehen Sie weiter."
-bad_res = validator.validate(valid_src, corrupted_tgt) print(f"Corrupted Segment Valid: {bad_res.is_valid}") # False
-print(f"Contains Blocker Issues: {bad_res.has_blockers}") # True (missing placeholder)
-for v in bad_res.violations: print(f" [{v.severity}] {v.field_name}: {v.message}") # 5. Export machine-readable JSON Schema for API gateway
-json_schema = validator.to_json_schema()
-print("Exported JSON Schema Title:", json_schema["title"])
-``` --- ## 📊 Benchmark & Accuracy Metrics > **Note:** Performance characteristics depend on hardware and data size. --- ## 🗂️ Module Organization ```
-translategate/
-├── src/translategate/
-│ ├── contract/ ← 🏛️ Contract-First Schema-Driven Validation Architecture
-│ │ ├── spec.py │ TranslationContract, ContractViolation, ContractValidationResult, ValidationSeverity
-│ │ ├── validator.py │ ContractValidator (Invariant verification & JSON Schema export)
-│ │ └── __init__.py
-│ ├── qa/ ← 🔍 Localization QA checks & pseudo-translation
-│ │ ├── checks.py │ check_placeholders(), check_terminology(), check_length()
-│ │ └── pseudo.py │ generate_pseudo_translation()
-│ ├── api/ ← 🌐 FastAPI endpoints (/validate, /contract, /health)
-│ ├── ui/ ← 🖥️ Streamlit interactive translation QA workbench
-│ └── settings.py
-├── tests/
-│ ├── test_contract_validation.py ← Contract-first schema validation unit tests
-│ ├── test_translategate.py ← QA checks & API contract tests
-│ └── conftest.py
-├── docker-compose.yml
-└── pyproject.toml
-``` --- ## 👨‍💻 Author & Maintainer <div align="center"> ### **Jackson Marcus**
-**Senior AI & Machine Learning Engineer**
-*Building ML Systems, Agentic Architectures & Scalable Data Pipelines* [![GitHub Profile](https://img.shields.io/badge/GitHub-jackson--marcus-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/jackson-marcus)
-[![Upwork Portfolio](https://img.shields.io/badge/Upwork-Top%20Rated%20Plus-14A800?style=for-the-badge&logo=upwork&logoColor=white)](https://www.upwork.com/freelancers/~012235717501ad9c7b)
-[![Email Contact](https://img.shields.io/badge/Email-wajahatanees41%40gmail.com-D14836?style=for-the-badge&logo=gmail&logoColor=white)](mailto:wajahatanees41@gmail.com) 📍 *Byron, GA, USA* </div>
+| `placeholders` | `blocker` | `{var}` / `%s` / `%d` present in source but missing or changed in target | regex set-compare |
+| `terminology` | `major` | Glossary term not translated to its mandated form, or a forbidden variant used | `docs/glossary.md` |
+| `untranslated` | `major` | Common English function words left in the target | English-hint list |
+| `length` | `minor` | Target/source length ratio outside `[0.6, 1.9]` (truncation / info-loss risk) | `configs/config.yaml` |
+| `numbers` | `major` | Numeric tokens differ between source and target | regex set-compare |
+
+The gate is conservative: any `blocker` finding → `block`; any finding at all → `review`; otherwise `pass`.
+
+### Quality estimation
+
+The learned score is deliberately simple and interpretable. Each pair is reduced to five features — placeholder-count mismatch, number of findings, length ratio, count of English-leftover hits, and copy rate (fraction of target tokens copied verbatim from the source) — and a standardized `LogisticRegression` predicts the probability that the pair is defective. The API returns `quality_score = 1 − P(defect)`. Training runs are logged to MLflow.
+
+### Synthetic corpus
+
+Because there's no labelled ground truth to train against, the project generates one. A deterministic pseudo-translator produces the "correct" target for each templated product string (glossary terms map to their mandated forms; placeholders and numbers pass through untouched). Defects are then injected into ~35% of pairs with a ground-truth label naming *which* check should fire — so detection precision/recall is measurable per check.
+
+### Glossary assistant
+
+`docs/glossary.md` is parsed into rules and indexed with BM25 (`rank_bm25`). A question is tokenized and matched against the index, returning the top rules above a score threshold — each with its `rule_id`, so answers cite the exact style-guide entry rather than paraphrasing.
+
+### Contract module (standalone)
+
+`src/translategate/contract/` is a separate, self-contained component: a `TranslationContract` dataclass plus a `ContractValidator` that expresses the same invariants (placeholders, numbers, expansion ratio, glossary, forbidden terms) as a formal per-language-pair contract and can export a JSON Schema for boundary validation. It's not on the `/check` request path — it's an alternative, contract-first framing of the same rules, exercised by its own test suite.
+
+## Getting started
+
+```bash
+make install                 # uv sync --group dev
+```
+
+Build the synthetic corpus and train the quality estimator (required — the API returns `503` on `/check` and `/corpus/summary` until the artifacts exist):
+
+```bash
+uv run python scripts/make_corpus.py          # writes data/processed/corpus.parquet
+uv run python -m translategate.models.train    # writes data/artifacts/qe.pkl + corpus_scored.parquet
+```
+
+Run the services:
+
+```bash
+make api                     # FastAPI on http://localhost:8370
+make ui                      # Streamlit on http://localhost:8871 (talks to the API)
+make mlflow                  # MLflow UI on http://localhost:5038
+```
+
+Or with Docker:
+
+```bash
+make docker-up               # api on :8370, ui on :8871
+make docker-down
+```
+
+## API
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/health` | Liveness check |
+| `POST` | `/check` | Gate one string pair → `{quality_score, gate, findings}` |
+| `GET` | `/corpus/summary` | Corpus size, planted-defect counts, and training metrics |
+| `POST` | `/glossary/ask` | Retrieve cited glossary rules for a question |
+
+Example (illustrative output shape on synthetic data, not a benchmark):
+
+```bash
+curl -s localhost:8370/check -H 'content-type: application/json' \
+  -d '{"source":"Your cart has {count} items ready for checkout",
+       "target":"rauya korv seh items ydeara rofa zahlung"}'
+```
+
+```json
+{
+  "quality_score": 0.12,
+  "gate": "block",
+  "findings": [
+    {"check": "placeholder", "severity": "blocker", "rule_id": "placeholders",
+     "detail": "source has ['{count}'], target has none"},
+    {"check": "terminology", "severity": "major", "rule_id": "term-checkout",
+     "detail": "forbidden variant 'zahlung' used for 'checkout'"}
+  ]
+}
+```
+
+## Evaluation
+
+Evaluation runs on the synthetic corpus, where every planted defect carries a ground-truth label naming the check that should catch it — so there is a real target to measure against. The training script reports, per check, precision and recall against the planted defects, plus ROC-AUC for the quality estimator and the overall defect rate. To reproduce:
+
+```bash
+uv run python scripts/make_corpus.py
+uv run python -m translategate.models.train   # prints and logs the metrics to MLflow
+```
+
+Numbers are intentionally omitted here because they depend on the generated dataset, defect rate, and seed (`configs/config.yaml`); run the script to produce them for your configuration.
+
+## Testing
+
+```bash
+make test                    # uv run pytest --cov
+```
+
+- `test_translategate.py` — pseudo-translator invariants, per-check detection, QE quality, glossary assistant, and API contract
+- `test_contract_validation.py` — the standalone contract validator and its JSON Schema export
+
+## Limitations
+
+- The bundled corpus is **synthetic**: templated strings and a pseudo-translator stand in for real MT output, so thresholds and the QE model would need recalibration on real translation data.
+- Checks are language-agnostic regex/lexical rules; the glossary and forbidden-term lists are BrandCo demo data, not a real localization glossary.
+- `untranslated` detection keys off a small English-hint word list and will miss anything outside it.
+- The quality estimator is a linear model over five hand-picked features — interpretable, but not a substitute for a learned MT quality-estimation system.
+
+## Project structure
+
+```
+src/translategate/
+├── qa/         # The core: 5 QA checks + the deterministic pseudo-translator
+├── models/     # Feature-based quality estimation (LogisticRegression + MLflow)
+├── rag/        # BM25 glossary assistant with rule citations
+├── contract/   # Standalone contract validator + JSON Schema export
+├── api/        # FastAPI app (main:app) and routes
+└── ui/         # Streamlit workbench (check / corpus / glossary tabs)
+scripts/        # Synthetic corpus generator with planted, labelled defects
+docs/           # glossary.md — style rules used for checks and RAG citations
+configs/        # config.yaml — paths, check thresholds, corpus size
+```
+
+## License
+
+MIT
+
+---
+
+<div align="center">
+
+**Jackson Marcus** · Senior AI & Machine Learning Engineer
+
+[![GitHub](https://img.shields.io/badge/GitHub-jackson--marcus-181717?logo=github&logoColor=white)](https://github.com/jackson-marcus)
+[![Email](https://img.shields.io/badge/Email-contact-D14836?logo=gmail&logoColor=white)](mailto:wajahatanees41@gmail.com)
+
+</div>
